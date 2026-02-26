@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Distrib</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            max-width: 960px;
+            margin: 0 auto;
+            padding: 2rem 1rem;
+            color: #1a1a1a;
+            background: #fafafa;
+        }
+
+        h1 {
+            font-size: 1.5rem;
+            font-weight: 600;
+            margin-bottom: 0.25rem;
+        }
+
+        .subtitle {
+            font-size: 0.85rem;
+            color: #888;
+            margin-bottom: 1.5rem;
+        }
+
+        .status {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.4rem;
+            font-size: 0.8rem;
+            color: #666;
+            margin-bottom: 1rem;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #ccc;
+        }
+
+        .status-dot.connected { background: #4CAF50; }
+        .status-dot.disconnected { background: #f44336; }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            background: #fff;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+        }
+
+        th {
+            padding: 0.75rem 1rem;
+            text-align: left;
+            font-weight: 500;
+            font-size: 0.8rem;
+            color: #888;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            border-bottom: 1px solid #eee;
+            background: #fafafa;
+        }
+
+        td {
+            padding: 0.75rem 1rem;
+            border-bottom: 1px solid #f0f0f0;
+            font-size: 0.9rem;
+        }
+
+        tr:last-child td { border-bottom: none; }
+
+        tr:hover td { background: #f8f9fa; }
+
+        a {
+            color: #0066cc;
+            text-decoration: none;
+        }
+
+        a:hover { text-decoration: underline; }
+
+        .empty {
+            color: #999;
+            padding: 3rem 1rem;
+            text-align: center;
+            font-size: 0.9rem;
+        }
+
+        .size { color: #888; font-size: 0.85rem; }
+
+        .sender {
+            display: inline-block;
+            background: #e8f0fe;
+            color: #1967d2;
+            padding: 0.15rem 0.5rem;
+            border-radius: 4px;
+            font-size: 0.8rem;
+        }
+
+        .time { color: #666; font-size: 0.85rem; }
+
+        .toast {
+            position: fixed;
+            top: 1rem;
+            right: 1rem;
+            background: #323232;
+            color: #fff;
+            padding: 0.75rem 1.25rem;
+            border-radius: 6px;
+            font-size: 0.85rem;
+            opacity: 0;
+            transform: translateY(-10px);
+            transition: all 0.3s ease;
+            z-index: 1000;
+            pointer-events: none;
+        }
+
+        .toast.show {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        .new-row td {
+            animation: highlight 2s ease;
+        }
+
+        @keyframes highlight {
+            0% { background: #e8f5e9; }
+            100% { background: transparent; }
+        }
+    </style>
+</head>
+<body>
+    <h1>Distrib</h1>
+    <p class="subtitle">Received files on this machine</p>
+    <div class="status">
+        <span class="status-dot" id="statusDot"></span>
+        <span id="statusText">Connecting...</span>
+    </div>
+
+    <table>
+        <thead>
+            <tr>
+                <th>File</th>
+                <th>From</th>
+                <th>Received</th>
+                <th>Size</th>
+            </tr>
+        </thead>
+        <tbody id="files"></tbody>
+    </table>
+
+    <div class="toast" id="toast"></div>
+
+    <script>
+        const tbody = document.getElementById('files');
+        const toast = document.getElementById('toast');
+        const statusDot = document.getElementById('statusDot');
+        const statusText = document.getElementById('statusText');
+
+        function esc(s) {
+            const d = document.createElement('div');
+            d.textContent = s;
+            return d.innerHTML;
+        }
+
+        function formatSize(bytes) {
+            if (bytes < 1024) return bytes + ' B';
+            if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' KB';
+            return (bytes / 1048576).toFixed(1) + ' MB';
+        }
+
+        function formatTime(iso) {
+            const d = new Date(iso);
+            const now = new Date();
+            const diff = now - d;
+
+            if (diff < 60000) return 'just now';
+            if (diff < 3600000) return Math.floor(diff / 60000) + 'm ago';
+            if (diff < 86400000) return Math.floor(diff / 3600000) + 'h ago';
+
+            return d.toLocaleDateString(undefined, {
+                month: 'short', day: 'numeric',
+                hour: '2-digit', minute: '2-digit'
+            });
+        }
+
+        function fileRow(f, isNew) {
+            return `<tr class="${isNew ? 'new-row' : ''}">
+                <td><a href="/files/${esc(f.id)}/raw" target="_blank">${esc(f.filename)}</a></td>
+                <td><span class="sender">${esc(f.sender)}</span></td>
+                <td class="time">${formatTime(f.received_at)}</td>
+                <td class="size">${formatSize(f.size)}</td>
+            </tr>`;
+        }
+
+        function renderFiles(files) {
+            if (files.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="4" class="empty">No files received yet. Push a file with: distrib push &lt;file.html&gt;</td></tr>';
+                return;
+            }
+            tbody.innerHTML = files.map(f => fileRow(f, false)).join('');
+        }
+
+        function addFile(f) {
+            const empty = tbody.querySelector('.empty');
+            if (empty) empty.closest('tr').remove();
+            tbody.insertAdjacentHTML('afterbegin', fileRow(f, true));
+        }
+
+        function showToast(msg) {
+            toast.textContent = msg;
+            toast.classList.add('show');
+            setTimeout(() => toast.classList.remove('show'), 3000);
+        }
+
+        function setStatus(connected) {
+            statusDot.className = 'status-dot ' + (connected ? 'connected' : 'disconnected');
+            statusText.textContent = connected ? 'Live' : 'Disconnected';
+        }
+
+        async function loadFiles() {
+            try {
+                const resp = await fetch('/files', { headers: { 'Accept': 'application/json' } });
+                const files = await resp.json();
+                renderFiles(files);
+            } catch (e) {
+                console.error('Failed to load files:', e);
+            }
+        }
+
+        function connectSSE() {
+            const es = new EventSource('/events');
+
+            es.onopen = () => setStatus(true);
+            es.onerror = () => setStatus(false);
+
+            es.addEventListener('file-received', (e) => {
+                const f = JSON.parse(e.data);
+                addFile(f);
+                showToast(`New file: ${f.filename} from ${f.sender}`);
+            });
+        }
+
+        loadFiles();
+        connectSSE();
+
+        // Refresh relative times every minute
+        setInterval(loadFiles, 60000);
+    </script>
+</body>
+</html>
