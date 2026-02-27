@@ -8,8 +8,9 @@ import (
 const (
 	defaultHTTPPort      = 9848
 	defaultDiscoveryPort = 9847
-	version              = "0.1.0"
 )
+
+var version = "dev"
 
 func main() {
 	if len(os.Args) < 2 {
