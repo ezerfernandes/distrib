@@ -32,8 +32,20 @@ func (b *SSEBroker) Unsubscribe(ch chan string) {
 }
 
 func (b *SSEBroker) Publish(entry *FileEntry) {
-	data, _ := json.Marshal(entry)
-	msg := fmt.Sprintf("event: file-received\ndata: %s\n\n", data)
+	b.send("file-received", entry)
+}
+
+func (b *SSEBroker) PublishUpdate(entry *FileEntry) {
+	b.send("file-updated", entry)
+}
+
+func (b *SSEBroker) PublishRemoval(id string) {
+	b.send("file-removed", map[string]string{"id": id})
+}
+
+func (b *SSEBroker) send(event string, payload any) {
+	data, _ := json.Marshal(payload)
+	msg := fmt.Sprintf("event: %s\ndata: %s\n\n", event, data)
 	b.mu.RLock()
 	for ch := range b.clients {
 		select {

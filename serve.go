@@ -63,6 +63,7 @@ func cmdServe(args []string) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /receive", handleReceive(store, broker))
 	mux.HandleFunc("GET /files", handleFiles(store))
+	mux.HandleFunc("DELETE /files/{id}", handleFileDelete(store, broker))
 	mux.HandleFunc("GET /files/{id}", handleFileView(store))
 	mux.HandleFunc("GET /files/{id}/raw", handleFileRaw(store))
 	mux.HandleFunc("GET /events", broker.ServeHTTP)
@@ -114,17 +115,21 @@ func handleReceive(store *Store, broker *SSEBroker) http.HandlerFunc {
 			return
 		}
 
-		entry, err := store.Save(header.Filename, sender, data)
+		entry, updated, err := store.Save(header.Filename, sender, data)
 		if err != nil {
 			jsonError(w, "save file: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
 
-		log.Printf("Received %q from %s (%d bytes)", entry.Filename, entry.Sender, entry.Size)
-
-		go sendNotification("Distrib", fmt.Sprintf("Received %s from %s", entry.Filename, entry.Sender))
-
-		broker.Publish(entry)
+		if updated {
+			log.Printf("Updated %q from %s (%d bytes)", entry.Filename, entry.Sender, entry.Size)
+			go sendNotification("Distrib", fmt.Sprintf("Updated %s from %s", entry.Filename, entry.Sender))
+			broker.PublishUpdate(entry)
+		} else {
+			log.Printf("Received %q from %s (%d bytes)", entry.Filename, entry.Sender, entry.Size)
+			go sendNotification("Distrib", fmt.Sprintf("Received %s from %s", entry.Filename, entry.Sender))
+			broker.Publish(entry)
+		}
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{"ok": true, "id": entry.ID})
@@ -151,6 +156,20 @@ func handleFiles(store *Store) http.HandlerFunc {
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(files)
+	}
+}
+
+func handleFileDelete(store *Store, broker *SSEBroker) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := r.PathValue("id")
+		if err := store.Delete(id); err != nil {
+			jsonError(w, "delete file: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		log.Printf("Deleted file %s", id)
+		broker.PublishRemoval(id)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"ok": true})
 	}
 }
 

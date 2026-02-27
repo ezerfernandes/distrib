@@ -29,15 +29,16 @@ cd distrib
 go build -o distrib .
 ```
 
-### Cross-compile
+### Release binaries
 
 ```
-GOOS=windows GOARCH=amd64 go build -o distrib.exe .
-GOOS=darwin  GOARCH=arm64 go build -o distrib-mac .
-GOOS=linux   GOARCH=amd64 go build -o distrib-linux .
+GOOS=darwin  GOARCH=arm64 go build -ldflags "-s -w -X main.version=$(git describe --tags --always --dirty)" -o dist/distrib-darwin-arm64 .
+GOOS=darwin  GOARCH=amd64 go build -ldflags "-s -w -X main.version=$(git describe --tags --always --dirty)" -o dist/distrib-darwin-amd64 .
+GOOS=linux   GOARCH=amd64 go build -ldflags "-s -w -X main.version=$(git describe --tags --always --dirty)" -o dist/distrib-linux-amd64 .
+GOOS=windows GOARCH=amd64 go build -ldflags "-s -w -X main.version=$(git describe --tags --always --dirty)" -o dist/distrib-windows-amd64.exe .
 ```
 
-No CGO — cross-compilation works out of the box.
+No CGO — cross-compilation works out of the box. Binaries are output to `dist/` with the version embedded from the latest git tag.
 
 ## Server (receiver)
 

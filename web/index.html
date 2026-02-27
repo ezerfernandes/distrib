@@ -126,6 +126,23 @@
             transform: translateY(0);
         }
 
+        .delete-btn {
+            background: none;
+            border: none;
+            cursor: pointer;
+            color: #ccc;
+            font-size: 1.1rem;
+            line-height: 1;
+            padding: 0.2rem 0.4rem;
+            border-radius: 4px;
+            transition: all 0.15s ease;
+        }
+
+        .delete-btn:hover {
+            color: #e53935;
+            background: #ffebee;
+        }
+
         .new-row td {
             animation: highlight 2s ease;
         }
@@ -151,6 +168,7 @@
                 <th>From</th>
                 <th>Received</th>
                 <th>Size</th>
+                <th style="width:2.5rem"></th>
             </tr>
         </thead>
         <tbody id="files"></tbody>
@@ -192,17 +210,18 @@
         }
 
         function fileRow(f, isNew) {
-            return `<tr class="${isNew ? 'new-row' : ''}">
+            return `<tr data-id="${esc(f.id)}" class="${isNew ? 'new-row' : ''}">
                 <td><a href="/files/${esc(f.id)}/raw" target="_blank">${esc(f.filename)}</a></td>
                 <td><span class="sender">${esc(f.sender)}</span></td>
                 <td class="time">${formatTime(f.received_at)}</td>
                 <td class="size">${formatSize(f.size)}</td>
+                <td><button class="delete-btn" onclick="deleteFile('${esc(f.id)}')" title="Remove">&times;</button></td>
             </tr>`;
         }
 
         function renderFiles(files) {
             if (files.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="4" class="empty">No files received yet. Push a file with: distrib push &lt;file.html&gt;</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="5" class="empty">No files received yet. Push a file with: distrib push &lt;file.html&gt;</td></tr>';
                 return;
             }
             tbody.innerHTML = files.map(f => fileRow(f, false)).join('');
@@ -212,6 +231,33 @@
             const empty = tbody.querySelector('.empty');
             if (empty) empty.closest('tr').remove();
             tbody.insertAdjacentHTML('afterbegin', fileRow(f, true));
+        }
+
+        async function deleteFile(id) {
+            try {
+                await fetch('/files/' + id, { method: 'DELETE' });
+                removeFileRow(id);
+                showToast('File removed');
+            } catch (e) {
+                console.error('Failed to delete file:', e);
+            }
+        }
+
+        function removeFileRow(id) {
+            const row = tbody.querySelector(`tr[data-id="${id}"]`);
+            if (row) row.remove();
+            if (!tbody.querySelector('tr[data-id]')) {
+                tbody.innerHTML = '<tr><td colspan="5" class="empty">No files received yet. Push a file with: distrib push &lt;file.html&gt;</td></tr>';
+            }
+        }
+
+        function updateFileRow(f) {
+            const row = tbody.querySelector(`tr[data-id="${f.id}"]`);
+            if (row) {
+                row.outerHTML = fileRow(f, true);
+            } else {
+                addFile(f);
+            }
         }
 
         function showToast(msg) {
@@ -245,6 +291,17 @@
                 const f = JSON.parse(e.data);
                 addFile(f);
                 showToast(`New file: ${f.filename} from ${f.sender}`);
+            });
+
+            es.addEventListener('file-updated', (e) => {
+                const f = JSON.parse(e.data);
+                updateFileRow(f);
+                showToast(`Updated: ${f.filename} from ${f.sender}`);
+            });
+
+            es.addEventListener('file-removed', (e) => {
+                const d = JSON.parse(e.data);
+                removeFileRow(d.id);
             });
         }
 

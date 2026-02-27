@@ -35,21 +35,28 @@ func NewStore(dataDir string) (*Store, error) {
 	return &Store{baseDir: filesDir}, nil
 }
 
-func (s *Store) Save(filename, sender string, data []byte) (*FileEntry, error) {
+// Save stores a file. If a file with the same filename and sender already exists,
+// it updates that entry in place. Returns the entry and whether it was an update.
+func (s *Store) Save(filename, sender string, data []byte) (*FileEntry, bool, error) {
 	hash := sha256.Sum256(data)
 	hashHex := hex.EncodeToString(hash[:])
 	now := time.Now()
+
+	// Check for existing file with same filename+sender
+	if existing := s.FindByFilenameAndSender(filename, sender); existing != nil {
+		return s.update(existing.ID, filename, sender, data, hashHex, now)
+	}
 
 	id := fmt.Sprintf("%s-%s", now.Format("20060102-150405"), hashHex[:6])
 
 	entryDir := filepath.Join(s.baseDir, id)
 	if err := os.MkdirAll(entryDir, 0755); err != nil {
-		return nil, fmt.Errorf("create entry dir: %w", err)
+		return nil, false, fmt.Errorf("create entry dir: %w", err)
 	}
 
 	filePath := filepath.Join(entryDir, "original.html")
 	if err := os.WriteFile(filePath, data, 0644); err != nil {
-		return nil, fmt.Errorf("write file: %w", err)
+		return nil, false, fmt.Errorf("write file: %w", err)
 	}
 
 	entry := &FileEntry{
@@ -64,13 +71,55 @@ func (s *Store) Save(filename, sender string, data []byte) (*FileEntry, error) {
 	metaPath := filepath.Join(entryDir, "meta.json")
 	metaData, err := json.MarshalIndent(entry, "", "  ")
 	if err != nil {
-		return nil, fmt.Errorf("marshal metadata: %w", err)
+		return nil, false, fmt.Errorf("marshal metadata: %w", err)
 	}
 	if err := os.WriteFile(metaPath, metaData, 0644); err != nil {
-		return nil, fmt.Errorf("write metadata: %w", err)
+		return nil, false, fmt.Errorf("write metadata: %w", err)
 	}
 
-	return entry, nil
+	return entry, false, nil
+}
+
+func (s *Store) update(id, filename, sender string, data []byte, hashHex string, now time.Time) (*FileEntry, bool, error) {
+	entryDir := filepath.Join(s.baseDir, id)
+
+	filePath := filepath.Join(entryDir, "original.html")
+	if err := os.WriteFile(filePath, data, 0644); err != nil {
+		return nil, false, fmt.Errorf("write file: %w", err)
+	}
+
+	entry := &FileEntry{
+		ID:         id,
+		Filename:   filename,
+		Sender:     sender,
+		ReceivedAt: now,
+		Size:       int64(len(data)),
+		SHA256:     hashHex,
+	}
+
+	metaPath := filepath.Join(entryDir, "meta.json")
+	metaData, err := json.MarshalIndent(entry, "", "  ")
+	if err != nil {
+		return nil, false, fmt.Errorf("marshal metadata: %w", err)
+	}
+	if err := os.WriteFile(metaPath, metaData, 0644); err != nil {
+		return nil, false, fmt.Errorf("write metadata: %w", err)
+	}
+
+	return entry, true, nil
+}
+
+func (s *Store) FindByFilenameAndSender(filename, sender string) *FileEntry {
+	entries, err := s.List()
+	if err != nil {
+		return nil
+	}
+	for _, e := range entries {
+		if e.Filename == filename && e.Sender == sender {
+			return &e
+		}
+	}
+	return nil
 }
 
 func (s *Store) List() ([]FileEntry, error) {
@@ -115,6 +164,17 @@ func (s *Store) Get(id string) (*FileEntry, error) {
 	}
 
 	return &entry, nil
+}
+
+func (s *Store) Delete(id string) error {
+	if !validID.MatchString(id) {
+		return fmt.Errorf("invalid file ID")
+	}
+	entryDir := filepath.Join(s.baseDir, id)
+	if err := os.RemoveAll(entryDir); err != nil {
+		return fmt.Errorf("delete entry: %w", err)
+	}
+	return nil
 }
 
 func (s *Store) FilePath(id string) (string, error) {
