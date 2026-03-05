@@ -23,6 +23,8 @@ func main() {
 		cmdServe(os.Args[2:])
 	case "push":
 		cmdPush(os.Args[2:])
+	case "push-assets":
+		cmdPushAssets(os.Args[2:])
 	case "version":
 		fmt.Println("distrib", version)
 	default:
@@ -35,9 +37,10 @@ func printUsage() {
 	fmt.Fprintf(os.Stderr, `distrib - distribute HTML files across your local network
 
 Usage:
-  distrib serve [flags]        Start the receiver daemon
-  distrib push <file> [flags]  Push an HTML file to peers
-  distrib version              Print version
+  distrib serve [flags]                                      Start the receiver daemon
+  distrib push <file> [flags]                                Push an HTML file to peers
+  distrib push-assets --for <file.html> <asset>... [flags]   Push asset files for an HTML file
+  distrib version                                            Print version
 
 Run 'distrib <command> -help' for details.
 `)

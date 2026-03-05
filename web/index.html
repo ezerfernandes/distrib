@@ -211,7 +211,7 @@
 
         function fileRow(f, isNew) {
             return `<tr data-id="${esc(f.id)}" class="${isNew ? 'new-row' : ''}">
-                <td><a href="/files/${esc(f.id)}/raw" target="_blank">${esc(f.filename)}</a></td>
+                <td><a href="/files/${esc(f.id)}/raw/" target="_blank">${esc(f.filename)}</a></td>
                 <td><span class="sender">${esc(f.sender)}</span></td>
                 <td class="time">${formatTime(f.received_at)}</td>
                 <td class="size">${formatSize(f.size)}</td>
