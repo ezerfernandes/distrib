@@ -21,6 +21,7 @@ type FileEntry struct {
 	ReceivedAt time.Time `json:"received_at"`
 	Size       int64     `json:"size"`
 	SHA256     string    `json:"sha256"`
+	ContentDir string    `json:"content_dir"`
 }
 
 type Store struct {
@@ -49,12 +50,14 @@ func (s *Store) Save(filename, sender string, data []byte) (*FileEntry, bool, er
 
 	id := fmt.Sprintf("%s-%s", now.Format("20060102-150405"), hashHex[:6])
 
+	contentDir := filenameWithoutExt(filename)
 	entryDir := filepath.Join(s.baseDir, id)
-	if err := os.MkdirAll(entryDir, 0755); err != nil {
-		return nil, false, fmt.Errorf("create entry dir: %w", err)
+	contentPath := filepath.Join(entryDir, contentDir)
+	if err := os.MkdirAll(contentPath, 0755); err != nil {
+		return nil, false, fmt.Errorf("create content dir: %w", err)
 	}
 
-	filePath := filepath.Join(entryDir, "original.html")
+	filePath := filepath.Join(contentPath, filename)
 	if err := os.WriteFile(filePath, data, 0644); err != nil {
 		return nil, false, fmt.Errorf("write file: %w", err)
 	}
@@ -66,6 +69,7 @@ func (s *Store) Save(filename, sender string, data []byte) (*FileEntry, bool, er
 		ReceivedAt: now,
 		Size:       int64(len(data)),
 		SHA256:     hashHex,
+		ContentDir: contentDir,
 	}
 
 	metaPath := filepath.Join(entryDir, "meta.json")
@@ -81,9 +85,14 @@ func (s *Store) Save(filename, sender string, data []byte) (*FileEntry, bool, er
 }
 
 func (s *Store) update(id, filename, sender string, data []byte, hashHex string, now time.Time) (*FileEntry, bool, error) {
+	contentDir := filenameWithoutExt(filename)
 	entryDir := filepath.Join(s.baseDir, id)
+	contentPath := filepath.Join(entryDir, contentDir)
+	if err := os.MkdirAll(contentPath, 0755); err != nil {
+		return nil, false, fmt.Errorf("create content dir: %w", err)
+	}
 
-	filePath := filepath.Join(entryDir, "original.html")
+	filePath := filepath.Join(contentPath, filename)
 	if err := os.WriteFile(filePath, data, 0644); err != nil {
 		return nil, false, fmt.Errorf("write file: %w", err)
 	}
@@ -95,6 +104,7 @@ func (s *Store) update(id, filename, sender string, data []byte, hashHex string,
 		ReceivedAt: now,
 		Size:       int64(len(data)),
 		SHA256:     hashHex,
+		ContentDir: contentDir,
 	}
 
 	metaPath := filepath.Join(entryDir, "meta.json")
@@ -181,5 +191,46 @@ func (s *Store) FilePath(id string) (string, error) {
 	if !validID.MatchString(id) {
 		return "", fmt.Errorf("invalid file ID")
 	}
+
+	// Try new structure first: {id}/{contentDir}/{filename}
+	entry, err := s.Get(id)
+	if err == nil && entry.ContentDir != "" {
+		return filepath.Join(s.baseDir, id, entry.ContentDir, entry.Filename), nil
+	}
+
+	// Backward compat: old entries stored as original.html
 	return filepath.Join(s.baseDir, id, "original.html"), nil
+}
+
+func (s *Store) ContentDirPath(id string) (string, error) {
+	if !validID.MatchString(id) {
+		return "", fmt.Errorf("invalid file ID")
+	}
+
+	entry, err := s.Get(id)
+	if err != nil {
+		return "", err
+	}
+	if entry.ContentDir == "" {
+		return "", fmt.Errorf("entry has no content directory")
+	}
+
+	return filepath.Join(s.baseDir, id, entry.ContentDir), nil
+}
+
+func (s *Store) SaveAsset(id string, assetName string, data []byte) error {
+	dir, err := s.ContentDirPath(id)
+	if err != nil {
+		return err
+	}
+
+	// Sanitize: only use the base name to prevent path traversal
+	safeName := filepath.Base(assetName)
+	assetPath := filepath.Join(dir, safeName)
+	return os.WriteFile(assetPath, data, 0644)
+}
+
+func filenameWithoutExt(filename string) string {
+	ext := filepath.Ext(filename)
+	return filename[:len(filename)-len(ext)]
 }
